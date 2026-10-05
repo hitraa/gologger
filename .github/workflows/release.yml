@@ -1,0 +1,32 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      - name: Verify version and changelog
+        shell: bash
+        run: |
+          version="$(sed -n 's/^const Version = "\(.*\)"$/\1/p' version.go)"
+          test -n "$version"
+          test "$GITHUB_REF_NAME" = "v$version"
+          grep -Fq "## [v$version]" CHANGELOG.md
+      - run: go test ./...
+      - run: go test -race ./...
+      - run: go vet ./...
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes

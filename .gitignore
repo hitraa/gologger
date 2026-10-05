@@ -1,0 +1,12 @@
+# Runtime log files and numbered rotation backups.
+/logs/
+*.log
+*.log.[0-9]*
+
+# Go build and test artifacts.
+/bin/
+/dist/
+/basic
+*.exe
+*.test
+/coverage.out
