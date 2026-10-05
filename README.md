@@ -11,10 +11,9 @@ go get github.com/hitraa/gologger@v1.0.0
 
 Requires Go 1.20 or newer.
 
-gologger follows Semantic Versioning. The exported `gologger.Version` value,
-changelog entry, and release tag are kept in sync. See
-[CHANGELOG.md](CHANGELOG.md) for release history and
-[CONTRIBUTING.md](CONTRIBUTING.md) for release steps.
+gologger follows Semantic Versioning. `v1.0.0` is the current stable release.
+See [CHANGELOG.md](CHANGELOG.md) for release notes and
+[CONTRIBUTING.md](CONTRIBUTING.md) for release details.
 
 ## Use
 
@@ -59,12 +58,57 @@ output by level (debug cyan, info green, warn yellow, error red); use `ColorNeve
 to disable colors or `ColorAlways` to force them. Files always receive plain
 text. Records use UTC timestamps with millisecond precision and the format
 `[timestamp] (file.go:line) [LEVEL] message`. Newlines in messages are escaped
-so each record occupies one physical line. `LevelOff` disables all records.
+so each record occupies one physical line, and other control characters are
+visibly escaped to prevent terminal control injection. `LevelOff` disables all
+records.
+
+## Examples
+
+Run the basic example with `go run ./examples/basic`. It demonstrates level
+parsing and changes, severity methods, colors, file rotation, sync, and close
+error handling. Additional examples:
+
+- `go run ./examples/structured`: JSON output and contextual/record fields.
+- `go run ./examples/sampling`: sampling with rotation and age retention.
+- `go run ./examples/slog`: `log/slog` integration (Go 1.21 or newer).
+
+## Structured logging
+
+Select `FormatJSON` for one JSON object per line, or use `With` and `LogFields`
+to add attributes to text records:
+
+```go
+serviceLogger := appLogger.With(gologger.Field{Key: "service", Value: "vehicle-api"})
+if err := serviceLogger.LogFields(
+	gologger.LevelInfo,
+	"vehicle connected",
+	gologger.Field{Key: "vehicle_id", Value: 17},
+); err != nil {
+	stdlog.Println(err)
+}
+```
+
+Field keys accept letters, digits, dots, hyphens, and underscores. JSON format
+reserves `time`, `level`, `msg`, and `source` for record metadata.
+See [`examples/structured`](examples/structured) for JSON output and
+[`examples/slog`](examples/slog) for the Go 1.21+ adapter.
+
+## Sampling
+
+Sampling is disabled by default. Configure `SamplingConfig` to keep the first
+`Initial` records per severity in each interval, then one in every
+`Thereafter` records. ERROR records bypass sampling unless `SampleErrors` is
+enabled. Sampling counters are bounded by severity, not by message cardinality.
+See [`examples/sampling`](examples/sampling) for a complete sampling and
+retention configuration.
 
 ## File rotation
 
-`MaxBytes` and `MaxLines` are independent limits; reaching either rotates the
-active file before the next record. Non-positive limits disable that criterion.
+`MaxBytes`, `MaxLines`, and `RotateInterval` are independent limits; reaching
+any enabled limit rotates the active file before the next record. Zero disables
+each criterion. `MaxAge` optionally deletes numbered backups older than the
+configured duration. Opening an existing file counts its lines once, so line
+rotation starts with the correct count; this scans the active file at startup.
 Backups use numbered suffixes (`service.log.1`, `service.log.2`, ...), with
 `.1` being the newest. A single record larger than `MaxBytes` is written to an
 empty active file rather than repeatedly rotating. `MaxBackups: 0` truncates the
@@ -74,10 +118,23 @@ parent directories; the default file mode is `0640`.
 ## Lifecycle and errors
 
 Logger methods return write errors; check them when output failures matter.
-`Sync` flushes destinations that expose a `Sync() error` method. `Close` closes
-only the logger-owned file, not the caller-provided `Output` writer, and is
-safe to call repeatedly. A logger serializes writes and configuration changes;
-separate processes should not write to the same rotating file concurrently.
+`Sync` flushes regular-file outputs, file logs, and custom writers that expose a
+`Sync() error` method; it skips terminal and pipe `*os.File` outputs. `Close`
+closes only the logger-owned file, not the caller-provided `Output` writer, and
+is safe to call repeatedly. A logger serializes writes and configuration changes.
+On Linux, macOS, and Windows, a file sink holds an exclusive non-blocking lock
+on `Path.lock`; another logger opening that path receives `ErrFileInUse`. The
+lock prevents concurrent rotation but does not merge multiple writers. Other
+operating systems currently do not provide process-level file locking.
+
+## `log/slog` integration
+
+On Go 1.21 or newer, `Logger.SlogHandler()` adapts the logger to the standard
+library `log/slog` API, including attributes, groups, source, and event time.
+The core package continues to support Go 1.20; the adapter is excluded on that
+version by a build constraint. `slog.Logger` methods don’t return output errors;
+use the direct `Logger` methods when per-record write errors must be returned.
+`Sync` and `Close` still report flush and shutdown errors.
 
 ## Development
 
